@@ -909,7 +909,7 @@ def main():
                 exists.append(str(results[site]["status"].status))
                 http_status.append(results[site]["http_status"])
 
-            DataFrame = pd.DataFrame(
+            data_frame = pd.DataFrame(
                 {
                     "username": usernames,
                     "name": names,
@@ -920,7 +920,7 @@ def main():
                     "response_time_s": response_time_s,
                 }
             )
-            DataFrame.to_excel(f"{username}.xlsx", sheet_name="sheet1", index=False)
+            data_frame.to_excel(f"{username}.xlsx", sheet_name="sheet1", index=False)
 
         print()
     query_notify.finish()
