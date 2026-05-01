@@ -110,7 +110,7 @@ class SherlockFuturesSession(FuturesSession):
         )
 
 
-def get_response(request_future, error_type, social_network):
+def get_response(request_future):
     # Default for Response object if some failure occurs.
     response = None
 
@@ -355,7 +355,7 @@ def sherlock(
         # Retrieve future and ensure it has finished
         future = net_info["request_future"]
         r, error_text, exception_text = get_response(
-            request_future=future, error_type=error_type, social_network=social_network
+            request_future=future
         )
 
         # Get response time for response of our request.
