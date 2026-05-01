@@ -161,10 +161,10 @@ checksymbols = ["_", "-", "."]
 
 def multiple_usernames(username):
     """replace the parameter with with symbols and return a list of usernames"""
-    allUsernames = []
+    all_usernames = []
     for i in checksymbols:
-        allUsernames.append(username.replace("{?}", i))
-    return allUsernames
+        all_usernames.append(username.replace("{?}", i))
+    return all_usernames
 
 
 def sherlock(
