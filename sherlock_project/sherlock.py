@@ -354,7 +354,7 @@ def sherlock(
 
         # Retrieve future and ensure it has finished
         future = net_info["request_future"]
-        r, error_text, exception_text = get_response(
+        r, error_text, _ = get_response(
             request_future=future
         )
 
@@ -434,9 +434,7 @@ def sherlock(
                     if isinstance(error_codes, int):
                         error_codes = [error_codes]
 
-                    if error_codes is not None and r.status_code in error_codes:
-                        query_status = QueryStatus.AVAILABLE
-                    elif r.status_code >= 300 or r.status_code < 200:
+                    if (error_codes is not None and r.status_code in error_codes) or r.status_code >= 300 or r.status_code < 200:
                         query_status = QueryStatus.AVAILABLE
 
                 if "response_url" in error_type and query_status is not QueryStatus.AVAILABLE:
