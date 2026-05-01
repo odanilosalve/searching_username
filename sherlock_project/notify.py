@@ -4,7 +4,7 @@ This module defines the objects for notifying the caller about the
 results of queries.
 """
 from sherlock_project.result import QueryStatus
-from colorama import Fore, Style
+from colorama import Fore, Style # pyright: ignore[reportMissingModuleSource]
 import webbrowser
 
 # Global variable to count the number of results.
