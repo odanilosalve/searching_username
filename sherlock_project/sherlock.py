@@ -382,7 +382,7 @@ def sherlock(
         # here to filter results that fail to bypass WAFs. Fingerprints should
         # be highly targetted. Comment at the end of each fingerprint to
         # indicate target and date fingerprinted.
-        WAFHitMsgs = [
+        waf_hit_msgs = [
             r'.loading-spinner{visibility:hidden}body.no-js .challenge-running{display:none}body.dark{background-color:#222;color:#d9d9d9}body.dark a{color:#fff}body.dark a:hover{color:#ee730a;text-decoration:underline}body.dark .lds-ring div{border-color:#999 transparent transparent}body.dark .font-red{color:#b20f03}body.dark', # 2024-05-13 Cloudflare
             r'<span id="challenge-error-text">', # 2024-11-11 Cloudflare error page
             r'AwsWafIntegration.forceRefreshToken', # 2024-11-11 Cloudfront (AWS)
@@ -392,7 +392,7 @@ def sherlock(
         if error_text is not None:
             error_context = error_text
 
-        elif any(hitMsg in r.text for hitMsg in WAFHitMsgs):
+        elif any(hitMsg in r.text for hitMsg in waf_hit_msgs):
             query_status = QueryStatus.WAF
 
         else:
