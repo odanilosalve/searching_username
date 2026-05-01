@@ -27,6 +27,7 @@
 
 | Method | Notes |
 | - | - |
+| `pip install -e .` | Install from source (local development) |
 | `pipx install sherlock-project` | `pip` or [`uv`](https://docs.astral.sh/uv/) may be used in place of `pipx` |
 | `docker run -it --rm sherlock/sherlock` |
 | `dnf install sherlock-project` | |
