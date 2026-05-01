@@ -18,7 +18,7 @@ except ImportError:
 
 import csv
 import signal
-import pandas as pd
+import pandas as pd # pyright: ignore[reportMissingModuleSource]
 import os
 import re
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
@@ -26,8 +26,8 @@ from json import loads as json_loads
 from time import monotonic
 from typing import Optional
 
-import requests
-from requests_futures.sessions import FuturesSession
+import requests # pyright: ignore[reportMissingModuleSource]
+from requests_futures.sessions import FuturesSession # pyright: ignore[reportMissingImports]
 
 from sherlock_project.__init__ import (
     __longname__,
@@ -41,7 +41,7 @@ from sherlock_project.result import QueryResult
 from sherlock_project.notify import QueryNotify
 from sherlock_project.notify import QueryNotifyPrint
 from sherlock_project.sites import SitesInformation
-from colorama import init
+from colorama import init # pyright: ignore[reportMissingModuleSource]
 from argparse import ArgumentTypeError
 
 
