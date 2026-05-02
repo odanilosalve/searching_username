@@ -32,18 +32,6 @@ from sherlock_project.__init__ import (
     __shortname__,
     __version__,
 )
-
-forge_api_latest_release = "https://api.github.com/repos/sherlock-project/sherlock/releases/latest"
-
-USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:129.0) Gecko/20100101 Firefox/129.0"
-
-WAF_HIT_MSGS = [
-    r'.loading-spinner{visibility:hidden}body.no-js .challenge-running{display:none}body.dark{background-color:#222;color:#d9d9d9}body.dark a{color:#fff}body.dark a:hover{color:#ee730a;text-decoration:underline}body.dark .lds-ring div{border-color:#999 transparent transparent}body.dark .font-red{color:#b20f03}body.dark',
-    r'<span id="challenge-error-text">',
-    r'AwsWafIntegration.forceRefreshToken',
-    r'{return l.onPageView}}),Object.defineProperty(r,"perimeterxIdentifiers",{enumerable:',
-]
-
 from sherlock_project.result import QueryStatus, QueryResult, ErrorType
 from sherlock_project.notify import QueryNotify, QueryNotifyPrint
 from sherlock_project.output import write_txt_output, write_csv_output, write_xlsx_output
@@ -51,6 +39,10 @@ from sherlock_project.sites import SitesInformation
 from colorama import init # pyright: ignore[reportMissingModuleSource]
 from argparse import ArgumentTypeError
 
+
+forge_api_latest_release = "https://api.github.com/repos/sherlock-project/sherlock/releases/latest"
+
+USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:129.0) Gecko/20100101 Firefox/129.0"
 
 WAF_HIT_MSGS = [
     r'.loading-spinner{visibility:hidden}body.no-js .challenge-running{display:none}body.dark{background-color:#222;color:#d9d9d9}body.dark a{color:#fff}body.dark a:hover{color:#ee730a;text-decoration:underline}body.dark .lds-ring div{border-color:#999 transparent transparent}body.dark .font-red{color:#b20f03}body.dark',
