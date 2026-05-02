@@ -64,7 +64,7 @@ def false_negative_check(sites_info: dict[str, dict[str, str]], site: str) -> Qu
     )[site]['status']
 
     if not hasattr(result, 'status'):
-            raise TypeError(f"Result for site {site} does not have 'status' attribute. Actual result: {result}")
+        raise TypeError(f"Result for site {site} does not have 'status' attribute. Actual result: {result}")
     if type(result.status) is not QueryStatus: # type: ignore
         raise TypeError(f"Result status for site {site} is not of type QueryStatus. Actual type: {type(result.status)}") # type: ignore
     status = result.status # type: ignore
