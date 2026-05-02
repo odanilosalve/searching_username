@@ -11,8 +11,8 @@ def fetch_local_manifest(honor_exclusions: bool = True) -> dict[str, dict[str, s
 
 @pytest.fixture()
 def sites_obj():
-    sites_obj = SitesInformation(data_file_path=os.path.join(os.path.dirname(__file__), "../sherlock_project/resources/data.json"), honor_exclusions=False)
-    yield sites_obj
+    obj = SitesInformation(data_file_path=os.path.join(os.path.dirname(__file__), "../sherlock_project/resources/data.json"), honor_exclusions=False)
+    yield obj
 
 @pytest.fixture(scope="session")
 def sites_info():

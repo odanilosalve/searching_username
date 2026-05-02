@@ -8,6 +8,7 @@ from colorama import Fore, Style # pyright: ignore[reportMissingModuleSource]
 import webbrowser
 
 
+
 class QueryNotify:
     """Query Notify Object.
 
