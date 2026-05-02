@@ -387,7 +387,7 @@ def process_response(results_site, social_network, net_info, r, error_text, erro
     raw_text = getattr(r, 'text', None)
     results_site["response_text"] = ""
     if raw_text is not None:
-        results_site["response_text"] = raw_text.encode(getattr(r, 'encoding', 'UTF-8'))
+        results_site["response_text"] = raw_text.encode(r.encoding or 'UTF-8')
     return results_site
 
 
