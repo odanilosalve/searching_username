@@ -3,8 +3,7 @@
 """
 Sherlock: Find Usernames Across Social Networks Module
 
-This module contains the main logic to search for usernames at social
-networks.
+This module contains the core engine for searching usernames across social networks.
 """
 
 import sys
@@ -16,31 +15,16 @@ except ImportError:
     print("This is an outdated method. Please see https://sherlockproject.xyz/installation for up to date instructions.")
     sys.exit(1)
 
-import signal
-import os
 import re
-from argparse import ArgumentParser, RawDescriptionHelpFormatter
-from json import loads as json_loads
 from time import monotonic
 from typing import Optional
 
 import requests # pyright: ignore[reportMissingModuleSource]
 from requests_futures.sessions import FuturesSession # pyright: ignore[reportMissingImports]
 
-from sherlock_project.__init__ import (
-    __longname__,
-    __shortname__,
-    __version__,
-)
-from sherlock_project.result import QueryStatus, QueryResult, ErrorType
-from sherlock_project.notify import QueryNotify, QueryNotifyPrint
-from sherlock_project.output import write_txt_output, write_csv_output, write_xlsx_output
-from sherlock_project.sites import SitesInformation
-from colorama import init # pyright: ignore[reportMissingModuleSource]
-from argparse import ArgumentTypeError
+from sherlock_project.result import ErrorType, QueryResult, QueryStatus
+from sherlock_project.notify import QueryNotify
 
-
-forge_api_latest_release = "https://api.github.com/repos/sherlock-project/sherlock/releases/latest"
 
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:129.0) Gecko/20100101 Firefox/129.0"
 
@@ -51,9 +35,11 @@ WAF_HIT_MSGS = [
     r'{return l.onPageView}}),Object.defineProperty(r,"perimeterxIdentifiers",{enumerable:',
 ]
 
+CHECK_SYMBOLS = ["_", "-", "."]
 
-def get_hook_response(hooks, response_time) -> None:
-    """Install response time hook into hooks dictionary."""
+
+def get_hook_response(hooks: dict, response_time) -> None:
+    """Insert a response-time hook at the front of the hooks list."""
     if isinstance(hooks["response"], list):
         hooks["response"].insert(0, response_time)
         return
@@ -61,34 +47,28 @@ def get_hook_response(hooks, response_time) -> None:
         hooks["response"] = list(hooks["response"])
         hooks["response"].insert(0, response_time)
         return
-    # Must have previously contained a single hook function
     hooks["response"] = [response_time, hooks["response"]]
 
 
-def get_request_method(session, request_method, url: str) -> callable:
-    """Determine the HTTP request method to use."""
+def get_request_method(session, request_method: str | None, url: str):
+    """Return the session method matching request_method, or None."""
     if request_method is None:
         return None
-    if request_method == "GET":
-        return session.get
-    if request_method == "HEAD":
-        return session.head
-    if request_method == "POST":
-        return session.post
-    if request_method == "PUT":
-        return session.put
+    methods = {"GET": session.get, "HEAD": session.head, "POST": session.post, "PUT": session.put}
+    if request_method in methods:
+        return methods[request_method]
     raise RuntimeError(f"Unsupported request_method for {url}")
 
 
-def get_probe_url(url_probe, url: str, username: str) -> str:
-    """Determine the URL to probe for username existence."""
+def get_probe_url(url_probe: str | None, url: str, username: str) -> str:
+    """Return url_probe with username substituted, or the original url."""
     if url_probe is None:
         return url
     return interpolate_string(url_probe, username)
 
 
-def get_request_function(session, request, net_info) -> callable:
-    """Determine the request function based on error type."""
+def get_request_function(session, request, net_info: dict):
+    """Return the appropriate request callable based on error type."""
     if request is not None:
         return request
     if net_info["errorType"] == ErrorType.STATUS_CODE:
@@ -97,26 +77,25 @@ def get_request_function(session, request, net_info) -> callable:
 
 
 def get_allow_redirects(error_type: str) -> bool:
-    """Determine if redirects should be allowed."""
+    """Return False only when error detection relies on the final response URL."""
     return error_type != ErrorType.RESPONSE_URL
 
 
-def make_request(request, url_probe, headers, proxy, allow_redirects, timeout, request_payload):
-    """Make the actual HTTP request."""
-    if proxy is not None:
-        proxies = {"http": proxy, "https": proxy}
-        return request(
-            url=url_probe, headers=headers, proxies=proxies,
-            allow_redirects=allow_redirects, timeout=timeout, json=request_payload
-        )
-    return request(
-        url=url_probe, headers=headers, allow_redirects=allow_redirects,
-        timeout=timeout, json=request_payload
+def make_request(request, url_probe: str, headers: dict, proxy: str | None,
+                 allow_redirects: bool, timeout: int, request_payload):
+    """Execute the HTTP request, injecting proxy settings when provided."""
+    kwargs = dict(
+        url=url_probe, headers=headers,
+        allow_redirects=allow_redirects, timeout=timeout, json=request_payload,
     )
+    if proxy is not None:
+        kwargs["proxies"] = {"http": proxy, "https": proxy}
+    return request(**kwargs)
 
 
-def process_site_request(session, net_info, url, headers, username, proxy, timeout):
-    """Process a single site's request setup and execution."""
+def process_site_request(session, net_info: dict, url: str, headers: dict,
+                         username: str, proxy: str | None, timeout: int):
+    """Build and dispatch the async HTTP request for one site."""
     url_probe = net_info.get("urlProbe")
     request_method = net_info.get("request_method")
     request_payload = net_info.get("request_payload")
@@ -134,69 +113,29 @@ def process_site_request(session, net_info, url, headers, username, proxy, timeo
 
 class SherlockFuturesSession(FuturesSession):
     def request(self, method, url, hooks=None, *args, **kwargs):
-        """Request URL.
-
-        This extends the FuturesSession request method to calculate a response
-        time metric to each request.
-
-        It is taken (almost) directly from the following Stack Overflow answer:
-        https://github.com/ross/requests-futures#working-in-the-background
-
-        Keyword Arguments:
-        self                   -- This object.
-        method                 -- String containing method desired for request.
-        url                    -- String containing URL for request.
-        hooks                  -- Dictionary containing hooks to execute after
-                                   request finishes.
-        args                   -- Arguments.
-        kwargs                 -- Keyword arguments.
-
-        Return Value:
-        Request object.
-        """
-        # Record the start time for the request.
+        """Wrap FuturesSession.request to record elapsed time on every response."""
         if hooks is None:
             hooks = {}
         start = monotonic()
 
         def response_time(resp, *args, **kwargs):
-            """Response Time Hook.
-
-            Keyword Arguments:
-            resp                   -- Response object.
-            args                   -- Arguments.
-            kwargs                 -- Keyword arguments.
-
-            Return Value:
-            Nothing.
-            """
             resp.elapsed = monotonic() - start
 
-            
-
-        # Install hook to execute when response completes.
-        # Make sure that the time measurement hook is first, so we will not
-        # track any later hook's execution time.
         try:
             get_hook_response(hooks, response_time)
         except KeyError:
-            # No response hook was already defined, so install it ourselves.
             hooks["response"] = [response_time]
 
-        return super(SherlockFuturesSession, self).request(
-            method, url, hooks=hooks, *args, **kwargs
-        )
+        return super().request(method, url, hooks=hooks, *args, **kwargs)
 
 
-def get_response(request_future):
-    # Default for Response object if some failure occurs.
+def get_response(request_future) -> tuple:
+    """Resolve a future and return (response, error_context)."""
     response = None
-
     error_context = "General Unknown Error"
     try:
         response = request_future.result()
         if response.status_code:
-            # Status code exists in response object
             error_context = None
     except requests.exceptions.HTTPError:
         error_context = "HTTP Error"
@@ -208,99 +147,81 @@ def get_response(request_future):
         error_context = "Timeout Error"
     except requests.exceptions.RequestException:
         error_context = "Unknown Error"
-
     return response, error_context
 
 
-def interpolate_string(input_object, username):
+def interpolate_string(input_object, username: str):
+    """Recursively replace '{}' with username in strings, dicts, and lists."""
     if isinstance(input_object, str):
         return input_object.replace("{}", username)
-    elif isinstance(input_object, dict):
+    if isinstance(input_object, dict):
         return {k: interpolate_string(v, username) for k, v in input_object.items()}
-    elif isinstance(input_object, list):
+    if isinstance(input_object, list):
         return [interpolate_string(i, username) for i in input_object]
     return input_object
 
 
-def check_for_parameter(username):
-    """checks if {?} exists in the username
-    if exist it means that sherlock is looking for more multiple username"""
+def check_for_parameter(username: str) -> bool:
+    """Return True if the username contains a {?} expansion placeholder."""
     return "{?}" in username
 
 
-CHECK_SYMBOLS = ["_", "-", "."]
+def multiple_usernames(username: str) -> list[str]:
+    """Expand {?} into each CHECK_SYMBOLS variant and return the list."""
+    return [username.replace("{?}", symbol) for symbol in CHECK_SYMBOLS]
 
 
-def multiple_usernames(username):
-    """replace the parameter with with symbols and return a list of usernames"""
-    all_usernames = []
-    for i in CHECK_SYMBOLS:
-        all_usernames.append(username.replace("{?}", i))
-    return all_usernames
+def check_waf_hits(r, waf_hit_msgs: list) -> bool:
+    """Return True if any known WAF fingerprint appears in the response body."""
+    return any(msg in r.text for msg in waf_hit_msgs)
 
 
-def check_waf_hits(r, waf_hit_msgs) -> bool:
-    """Check if response contains WAF fingerprints."""
-    return any(hitMsg in r.text for hitMsg in waf_hit_msgs)
-
-
-def process_message_error(r, net_info):
-    """Process error detection via message in HTML."""
+def process_message_error(r, net_info: dict) -> QueryStatus:
+    """Detect username availability via an error message in the response body."""
     errors = net_info.get("errorMsg")
-
-    if isinstance(errors, str) and errors in r.text:
+    if isinstance(errors, str):
+        return QueryStatus.AVAILABLE if errors in r.text else QueryStatus.CLAIMED
+    if isinstance(errors, list) and any(e in r.text for e in errors):
         return QueryStatus.AVAILABLE
-
-    if isinstance(errors, list):
-        for error in errors:
-            if error in r.text:
-                return QueryStatus.AVAILABLE
-
     return QueryStatus.CLAIMED
 
 
-def process_status_code(r, net_info, query_status):
-    """Process error detection via HTTP status code."""
+def process_status_code(r, net_info: dict, query_status: QueryStatus) -> QueryStatus:
+    """Detect username availability via HTTP status code."""
     if query_status == QueryStatus.AVAILABLE:
         return QueryStatus.AVAILABLE
 
     error_codes = net_info.get("errorCode")
-    result = QueryStatus.CLAIMED
-
     if isinstance(error_codes, int):
         error_codes = [error_codes]
 
-    if (error_codes is not None and r.status_code in error_codes) or r.status_code >= 300 or r.status_code < 200:
-        result = QueryStatus.AVAILABLE
-
-    return result
-
-
-def process_response_url(r, query_status):
-    """Process error detection via response URL redirect."""
-    if query_status == QueryStatus.AVAILABLE:
+    if (error_codes is not None and r.status_code in error_codes) \
+            or not (200 <= r.status_code < 300):
         return QueryStatus.AVAILABLE
 
-    if 200 <= r.status_code < 300:
-        return QueryStatus.CLAIMED
-    return QueryStatus.AVAILABLE
+    return QueryStatus.CLAIMED
 
 
-def determine_query_status(r, error_text, error_type, net_info, waf_hit_msgs) -> tuple:
-    """Determine the query status based on various detection methods."""
-    query_status = QueryStatus.UNKNOWN
+def process_response_url(r, query_status: QueryStatus) -> QueryStatus:
+    """Detect username availability via the final response URL after redirects."""
+    if query_status == QueryStatus.AVAILABLE:
+        return QueryStatus.AVAILABLE
+    return QueryStatus.CLAIMED if 200 <= r.status_code < 300 else QueryStatus.AVAILABLE
 
+
+def determine_query_status(r, error_text: str | None, error_type: list,
+                           net_info: dict, waf_hit_msgs: list) -> tuple:
+    """Determine the final QueryStatus and optional error context for a response."""
     if error_text is not None:
-        return query_status, error_text
+        return QueryStatus.UNKNOWN, error_text
 
     if check_waf_hits(r, waf_hit_msgs):
         return QueryStatus.WAF, None
 
-    # Unknown error type check
     if any(errtype not in list(ErrorType) for errtype in error_type):
         return QueryStatus.UNKNOWN, f"Unknown error type '{error_type}'"
 
-    # Process by error type
+    query_status = QueryStatus.UNKNOWN
     if ErrorType.MESSAGE in error_type:
         query_status = process_message_error(r, net_info)
 
@@ -310,8 +231,10 @@ def determine_query_status(r, error_text, error_type, net_info, waf_hit_msgs) ->
     return query_status, None
 
 
-def process_site_result(results_site, social_network, net_info, url, username, session, headers, proxy, timeout, query_notify):
-    """Process a single site's request and store the future."""
+def process_site_result(results_site: dict, social_network: str, net_info: dict,
+                        url: str, username: str, session, headers: dict,
+                        proxy: str | None, timeout: int, query_notify: QueryNotify) -> bool:
+    """Validate username regex, then dispatch the async request for one site."""
     if "headers" in net_info:
         headers.update(net_info["headers"])
 
@@ -325,363 +248,121 @@ def process_site_result(results_site, social_network, net_info, url, username, s
         return False
 
     results_site["url_user"] = url
-    future = process_site_request(session, net_info, url, headers, username, proxy, timeout)
-    net_info["request_future"] = future
+    net_info["request_future"] = process_site_request(
+        session, net_info, url, headers, username, proxy, timeout
+    )
     return True
 
 
-def process_response(results_site, social_network, net_info, r, error_text, error_type, username, dump_response, query_notify):
-    """Process the response from a site request."""
-    query_status = QueryStatus.UNKNOWN
-    error_context = None
+def _dump_response_debug(social_network: str, username: str, results_site: dict,
+                         error_type: list, net_info: dict, r) -> None:
+    """Print raw response details for debugging (--dump-response flag)."""
+    print("+++++++++++++++++++++")
+    print(f"TARGET NAME   : {social_network}")
+    print(f"USERNAME      : {username}")
+    print(f"TARGET URL    : {results_site.get('url_user')}")
+    print(f"TEST METHOD   : {error_type}")
+    try:
+        print(f"STATUS CODES  : {net_info['errorCode']}")
+    except KeyError:
+        pass
+    print("Results...")
+    try:
+        print(f"RESPONSE CODE : {r.status_code}")
+    except Exception:
+        pass
+    try:
+        print(f"ERROR TEXT    : {net_info['errorMsg']}")
+    except KeyError:
+        pass
+    print(">>>>> BEGIN RESPONSE TEXT")
+    try:
+        print(r.text)
+    except Exception:
+        pass
+    print("<<<<< END RESPONSE TEXT")
 
-    query_status, error_context = determine_query_status(r, error_text, error_type, net_info, WAF_HIT_MSGS)
+
+def process_response(results_site: dict, social_network: str, net_info: dict,
+                     r, error_text: str | None, error_type: list, username: str,
+                     dump_response: bool, query_notify: QueryNotify) -> dict:
+    """Evaluate the HTTP response and record the QueryResult in results_site."""
+    query_status, error_context = determine_query_status(
+        r, error_text, error_type, net_info, WAF_HIT_MSGS
+    )
 
     if dump_response:
-        print("+++++++++++++++++++++")
-        print(f"TARGET NAME   : {social_network}")
-        print(f"USERNAME      : {username}")
-        print(f"TARGET URL    : {results_site.get('url_user')}")
-        print(f"TEST METHOD   : {error_type}")
-        try:
-            print(f"STATUS CODES  : {net_info['errorCode']}")
-        except KeyError:
-            pass
-        print("Results...")
-        try:
-            print(f"RESPONSE CODE : {r.status_code}")
-        except Exception:
-            pass
-        try:
-            print(f"ERROR TEXT    : {net_info['errorMsg']}")
-        except KeyError:
-            pass
-        print(">>>>> BEGIN RESPONSE TEXT")
-        try:
-            print(r.text)
-        except Exception:
-            pass
-        print("<<<<< END RESPONSE TEXT")
+        _dump_response_debug(social_network, username, results_site, error_type, net_info, r)
         print("VERDICT       : " + str(query_status))
         print("+++++++++++++++++++++")
 
     result = QueryResult(
-        username=username, site_name=social_network,
+        username=username,
+        site_name=social_network,
         site_url_user=results_site.get("url_user"),
         status=query_status,
         query_time=getattr(r, 'elapsed', None),
-        context=error_context
+        context=error_context,
     )
     query_notify.update(result)
 
     results_site["status"] = result
     results_site["http_status"] = getattr(r, 'status_code', "?")
     raw_text = getattr(r, 'text', None)
-    results_site["response_text"] = ""
-    if raw_text is not None:
-        results_site["response_text"] = raw_text.encode(r.encoding or 'UTF-8')
+    results_site["response_text"] = raw_text.encode(r.encoding or 'UTF-8') if raw_text else ""
     return results_site
 
 
 def sherlock(
     username: str,
-    site_data: dict[str, dict[str, str]],
+    site_data: dict[str, dict],
     query_notify: QueryNotify,
     dump_response: bool = False,
     proxy: Optional[str] = None,
     timeout: int = 60,
     session: Optional[requests.Session] = None,
-) -> dict[str, dict[str, str | QueryResult]]:
-    """Run Sherlock Analysis.
+) -> dict[str, dict]:
+    """Search for username across all sites in site_data.
 
-    Checks for existence of username on various social media sites.
-
-    Keyword Arguments:
-    username               -- String indicating username that report
-                               should be created against.
-    site_data              -- Dictionary containing all of the site data.
-    query_notify           -- Object with base type of QueryNotify().
-                               This will be used to notify the caller about
-                               query results.
-    proxy                  -- String indicating the proxy URL
-    timeout                -- Time in seconds to wait before timing out request.
-                               Default is 60 seconds.
-
-    Return Value:
-    Dictionary containing results from report. Key of dictionary is the name
-    of the social network site, and the value is another dictionary with
-    the following keys:
-        url_main:      URL of main site.
-        url_user:      URL of user on site (if account exists).
-        status:        QueryResult() object indicating results of test for
-                        account existence.
-        http_status:   HTTP status code of query which checked for existence on
-                        site.
-        response_text: Text that came back from request.  May be None if
-                        there was an HTTP error when checking for existence.
+    Returns a dict keyed by site name with url_main, url_user, status,
+    http_status, and response_text for each site.
     """
-    # Notify caller that we are starting the query.
     query_notify.start(username)
 
     underlying_session = session or requests.session()
-    max_workers = min(len(site_data), 20)
+    futures_session = SherlockFuturesSession(
+        max_workers=min(len(site_data), 20),
+        session=underlying_session,
+    )
 
-    # Create multi-threaded session for all requests.
-    session = SherlockFuturesSession(max_workers=max_workers, session=underlying_session)
+    results_total: dict = {}
 
-    # Results from analysis of all sites
-    results_total = {}
-
-    # First create futures for all requests.
     for social_network, net_info in site_data.items():
-        results_site = {"url_main": net_info.get("urlMain")}
+        results_site: dict = {"url_main": net_info.get("urlMain")}
         headers = {"User-Agent": USER_AGENT}
         encoded_username = username.replace(' ', '%20')
         url = interpolate_string(net_info["url"], encoded_username)
 
-        process_site_result(results_site, social_network, net_info, url, username, session, headers, proxy, timeout, query_notify)
+        process_site_result(
+            results_site, social_network, net_info, url,
+            username, futures_session, headers, proxy, timeout, query_notify,
+        )
         results_total[social_network] = results_site
 
-    # Process responses
     for social_network, net_info in site_data.items():
         results_site = results_total.get(social_network)
-        if results_site is None:
-            continue
-        if results_site.get("status") is not None:
+        if results_site is None or results_site.get("status") is not None:
             continue
 
         error_type = net_info["errorType"]
         if isinstance(error_type, str):
             error_type = [error_type]
 
-        future = net_info["request_future"]
-        r, error_text = get_response(request_future=future)
+        r, error_text = get_response(request_future=net_info["request_future"])
 
         results_total[social_network] = process_response(
-            results_site, social_network, net_info, r, error_text, error_type, username, dump_response, query_notify
+            results_site, social_network, net_info, r,
+            error_text, error_type, username, dump_response, query_notify,
         )
 
     return results_total
-
-
-def timeout_check(value):
-    """Check Timeout Argument.
-
-    Checks timeout for validity.
-
-    Keyword Arguments:
-    value                  -- Time in seconds to wait before timing out request.
-
-    Return Value:
-    Floating point number representing the time (in seconds) that should be
-    used for the timeout.
-
-    NOTE:  Will raise an exception if the timeout in invalid.
-    """
-
-    float_value = float(value)
-
-    if float_value <= 0:
-        raise ArgumentTypeError(
-            f"Invalid timeout value: {value}. Timeout must be a positive number."
-        )
-
-    return float_value
-
-
-def handler(signal_received, frame):
-    """Exit gracefully without throwing errors
-
-    Source: https://www.devdungeon.com/content/python-catch-sigint-ctrl-c
-    """
-    sys.exit(0)
-
-
-def check_for_updates():
-    """Check for newer version of Sherlock and notify user."""
-    try:
-        latest_release_raw = requests.get(forge_api_latest_release, timeout=10).text
-        latest_release_json = json_loads(latest_release_raw)
-        latest_remote_tag = latest_release_json["tag_name"]
-
-        if latest_remote_tag[1:] != __version__:
-            print(
-                f"Update available! {__version__} --> {latest_remote_tag[1:]}"
-                f"\n{latest_release_json['html_url']}"
-            )
-    except Exception as error:
-        print(f"A problem occurred while checking for an update: {error}")
-
-
-def setup_color_output(no_color: bool) -> None:
-    """Setup colorama color output based on user preference."""
-    if no_color:
-        init(strip=True, convert=False)
-        return
-    init(autoreset=True)
-
-
-def load_site_information(args):
-    """Load site information from local file or remote source."""
-    try:
-        if args.local:
-            return SitesInformation(
-                os.path.join(os.path.dirname(__file__), "resources/data.json"),
-                honor_exclusions=False,
-            )
-        else:
-            json_file_location = args.json_file
-            if args.json_file and args.json_file.isdigit():
-                pull_number = args.json_file
-                pull_url = f"https://api.github.com/repos/sherlock-project/sherlock/pulls/{pull_number}"
-                pull_request_raw = requests.get(pull_url, timeout=10).text
-                pull_request_json = json_loads(pull_request_raw)
-
-                if "message" in pull_request_json:
-                    print(f"ERROR: Pull request #{pull_number} not found.")
-                    sys.exit(1)
-
-                head_commit_sha = pull_request_json["head"]["sha"]
-                json_file_location = f"https://raw.githubusercontent.com/sherlock-project/sherlock/{head_commit_sha}/sherlock_project/resources/data.json"
-
-            return SitesInformation(
-                data_file_path=json_file_location,
-                honor_exclusions=not args.ignore_exclusions,
-                do_not_exclude=args.site_list,
-            )
-    except Exception as error:
-        print(f"ERROR:  {error}")
-        sys.exit(1)
-
-
-def build_site_data(site_data_all, site_list) -> tuple:
-    """Build filtered site data and collect missing sites."""
-    site_data = {}
-    site_missing = []
-
-    for site in site_list:
-        counter = 0
-        for existing_site in site_data_all:
-            if site.lower() == existing_site.lower():
-                site_data[existing_site] = site_data_all[existing_site]
-                counter += 1
-        if counter == 0:
-            site_missing.append(f"'{site}'")
-
-    return site_data, site_missing
-
-
-def filter_sites(sites, site_list, nsfw: bool) -> dict:
-    """Filter sites based on user preferences."""
-    if not nsfw:
-        sites.remove_nsfw_sites(do_not_remove=site_list)
-
-    site_data_all = {site.name: site.information for site in sites}
-
-    if not site_list:
-        return site_data_all
-
-    site_data, site_missing = build_site_data(site_data_all, site_list)
-
-    if site_missing:
-        print(f"Error: Desired sites not found: {', '.join(site_missing)}.")
-
-    if not site_data:
-        sys.exit(1)
-
-    return site_data
-
-
-def get_result_file(args, username: str) -> str:
-    """Determine the output file path based on arguments."""
-    result_file = f"{username}.txt"
-    if args.output:
-        return args.output
-    if args.folderoutput:
-        os.makedirs(args.folderoutput, exist_ok=True)
-        return os.path.join(args.folderoutput, f"{username}.txt")
-    return result_file
-
-
-def process_usernames(args) -> list:
-    """Process usernames including multiple username expansion."""
-    all_usernames = []
-    for username in args.username:
-        if not check_for_parameter(username):
-            all_usernames.append(username)
-            continue
-        for name in multiple_usernames(username):
-            all_usernames.append(name)
-    return all_usernames
-
-
-def validate_output_args(args) -> None:
-    """Validate output-related arguments."""
-    if args.output is not None and args.folderoutput is not None:
-        print("You can only use one of the output methods.")
-        sys.exit(1)
-    if args.output is not None and len(args.username) != 1:
-        print("You can only use --output with a single username")
-        sys.exit(1)
-
-
-def main():
-    parser = ArgumentParser(
-        formatter_class=RawDescriptionHelpFormatter,
-        description=f"{__longname__} (Version {__version__})",
-    )
-    parser.add_argument("--version", action="version", version=f"{__shortname__} v{__version__}", help="Display version information and dependencies.")
-    parser.add_argument("--verbose", "-v", "-d", "--debug", action="store_true", dest="verbose", default=False, help="Display extra debugging information and metrics.")
-    parser.add_argument("--folderoutput", "-fo", dest="folderoutput", help="If using multiple usernames, the output of the results will be saved to this folder.")
-    parser.add_argument("--output", "-o", dest="output", help="If using single username, the output of the result will be saved to this file.")
-    parser.add_argument("--csv", action="store_true", dest="csv", default=False, help="Create Comma-Separated Values (CSV) File.")
-    parser.add_argument("--xlsx", action="store_true", dest="xlsx", default=False, help="Create the standard file for the modern Microsoft Excel spreadsheet (xlsx).")
-    parser.add_argument("--site", action="append", metavar="SITE_NAME", dest="site_list", default=[], help="Limit analysis to just the listed sites. Add multiple options to specify more than one site.")
-    parser.add_argument("--proxy", "-p", metavar="PROXY_URL", action="store", dest="proxy", default=None, help="Make requests over a proxy. e.g. socks5://127.0.0.1:1080")
-    parser.add_argument("--dump-response", action="store_true", dest="dump_response", default=False, help="Dump the HTTP response to stdout for targeted debugging.")
-    parser.add_argument("--json", "-j", metavar="JSON_FILE", dest="json_file", default=None, help="Load data from a JSON file or an online, valid, JSON file. Upstream PR numbers also accepted.")
-    parser.add_argument("--timeout", action="store", metavar="TIMEOUT", dest="timeout", type=timeout_check, default=60, help="Time (in seconds) to wait for response to requests (Default: 60)")
-    parser.add_argument("--print-all", action="store_true", dest="print_all", default=False, help="Output sites where the username was not found.")
-    parser.add_argument("--print-found", action="store_true", dest="print_found", default=True, help="Output sites where the username was found (also if exported as file).")
-    parser.add_argument("--no-color", action="store_true", dest="no_color", default=False, help="Don't color terminal output")
-    parser.add_argument("username", nargs="+", metavar="USERNAMES", action="store", help="One or more usernames to check with social networks. Check similar usernames using {?} (replace to '_', '-', '.').")
-    parser.add_argument("--browse", "-b", action="store_true", dest="browse", default=False, help="Browse to all results on default browser.")
-    parser.add_argument("--local", "-l", action="store_true", default=False, help="Force the use of the local data.json file.")
-    parser.add_argument("--nsfw", action="store_true", default=False, help="Include checking of NSFW sites from default list.")
-    parser.add_argument("--txt", action="store_true", dest="output_txt", default=False, help="Enable creation of a txt file")
-    parser.add_argument("--ignore-exclusions", action="store_true", dest="ignore_exclusions", default=False, help="Ignore upstream exclusions (may return more false positives)")
-
-    args = parser.parse_args()
-
-    signal.signal(signal.SIGINT, handler)
-    check_for_updates()
-
-    if args.proxy is not None:
-        print("Using the proxy: " + args.proxy)
-
-    setup_color_output(args.no_color)
-    validate_output_args(args)
-
-    sites = load_site_information(args)
-    site_data = filter_sites(sites, args.site_list, args.nsfw)
-
-    query_notify = QueryNotifyPrint(result=None, verbose=args.verbose, print_all=args.print_all, browse=args.browse)
-    all_usernames = process_usernames(args)
-
-    for username in all_usernames:
-        results = sherlock(username, site_data, query_notify, dump_response=args.dump_response, proxy=args.proxy, timeout=args.timeout)
-        result_file = get_result_file(args, username)
-
-        if args.output_txt:
-            write_txt_output(results, result_file)
-        if args.csv:
-            write_csv_output(results, args, username)
-        if args.xlsx:
-            write_xlsx_output(results, args, username)
-        print()
-
-    query_notify.finish()
-
-
-if __name__ == "__main__":
-    main()

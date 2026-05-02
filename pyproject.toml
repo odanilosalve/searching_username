@@ -65,4 +65,4 @@ pytest-xdist = "^3.8.0"
 defusedxml = "^0.7.1"
 
 [tool.poetry.scripts]
-sherlock = 'sherlock_project.sherlock:main'
+sherlock = 'sherlock_project.cli:main'

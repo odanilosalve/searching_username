@@ -16,5 +16,5 @@ if __name__ == "__main__":
         print(f"Sherlock requires Python 3.9+\nYou are using Python {python_version}, which is not supported by Sherlock.")
         sys.exit(1)
 
-    from sherlock_project import sherlock
-    sherlock.main()
+    from sherlock_project.cli import main
+    main()
