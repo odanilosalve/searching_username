@@ -2,61 +2,76 @@
 # This module summarizes the results of site validation tests queued by
 # workflow validate_modified_targets for presentation in Issue comments.
 
-from defusedxml import ElementTree as ET
+from defusedxml import ElementTree as ET # pyright: ignore[reportMissingModuleSource]
 import sys
 from pathlib import Path
+
+_PASS = ":heavy_check_mark: &nbsp; Pass"
+_FAIL = ":x: &nbsp; Fail"
+
+_TEST_FIELD = {
+    "test_false_neg": "F- Check",
+    "test_false_pos": "F+ Check",
+}
+
+
+def _result_message(testcase) -> str:
+    """Return the pass or fail display string for a testcase element."""
+    if testcase.find('failure') is None and testcase.find('error') is None:
+        return _PASS
+    return _FAIL
+
+
+def _parse_testcase(testcase, results: dict) -> bool:
+    """Record one testcase result and return True if an error element was found."""
+    name: str = testcase.get('name')
+    test_name, site_name = name.split('[')[0], name.split('[')[1].rstrip(']')
+
+    results.setdefault(site_name, {})
+
+    field = _TEST_FIELD.get(test_name)
+    if field:
+        results[site_name][field] = _result_message(testcase)
+
+    return testcase.find('error') is not None
+
 
 def summarize_junit_xml(xml_path: Path) -> str:
     tree = ET.parse(xml_path)
     root = tree.getroot()
     suite = root.find('testsuite')
 
-    pass_message: str = ":heavy_check_mark: &nbsp; Pass"
-    fail_message: str = ":x: &nbsp; Fail"
-
     if suite is None:
         raise ValueError("Invalid JUnit XML: No testsuite found")
 
-    summary_lines: list[str] = []
-    summary_lines.append("#### Automatic validation of changes\n")
-    summary_lines.append("| Target | F+ Check | F- Check |")
-    summary_lines.append("|---|---|---|")
-
-    failures = int(suite.get('failures', 0))
-    errors_detected: bool = False
-
     results: dict[str, dict[str, str]] = {}
+    error_flags = [_parse_testcase(tc, results) for tc in suite.findall('testcase')]
 
-    for testcase in suite.findall('testcase'):
-        test_name = testcase.get('name').split('[')[0]
-        site_name = testcase.get('name').split('[')[1].rstrip(']')
-        failure = testcase.find('failure')
-        error = testcase.find('error')
+    summary_lines: list[str] = [
+        "#### Automatic validation of changes\n",
+        "| Target | F+ Check | F- Check |",
+        "|---|---|---|",
+        *[
+            f"| {site} | {data.get('F+ Check', 'Error!')} | {data.get('F- Check', 'Error!')} |"
+            for site, data in results.items()
+        ],
+    ]
 
-        if site_name not in results:
-            results[site_name] = {}
+    if int(suite.get('failures', 0)) > 0:
+        summary_lines.append(
+            "\n___\n"
+            "\nFailures were detected on at least one updated target. Commits containing accuracy failures"
+            " will often not be merged (unless a rationale is provided, such as false negatives due to regional differences)."
+        )
 
-        if test_name == "test_false_neg":
-            results[site_name]['F- Check'] = pass_message if failure is None and error is None else fail_message
-        elif test_name == "test_false_pos":
-            results[site_name]['F+ Check'] = pass_message if failure is None and error is None else fail_message
-
-        if error is not None:
-            errors_detected = True
-
-    for result in results:
-        summary_lines.append(f"| {result} | {results[result].get('F+ Check', 'Error!')} | {results[result].get('F- Check', 'Error!')} |")
-
-    if failures > 0:
-        summary_lines.append("\n___\n" +
-            "\nFailures were detected on at least one updated target. Commits containing accuracy failures" +
-            " will often not be merged (unless a rationale is provided, such as false negatives due to regional differences).")
-
-    if errors_detected:
-        summary_lines.append("\n___\n" +
-            "\n**Errors were detected during validation. Please review the workflow logs.**")
+    if any(error_flags):
+        summary_lines.append(
+            "\n___\n"
+            "\n**Errors were detected during validation. Please review the workflow logs.**"
+        )
 
     return "\n".join(summary_lines)
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
