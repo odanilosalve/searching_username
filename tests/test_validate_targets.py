@@ -69,7 +69,7 @@ def false_negative_check(sites_info: dict[str, dict[str, str]], site: str) -> Qu
 
 @pytest.mark.validate_targets
 @pytest.mark.online
-class Test_All_Targets:
+class TestAllTargets:
 
     @pytest.mark.validate_targets_fp
     def test_false_pos(self, chunked_sites: dict[str, dict[str, str]]):
