@@ -3,7 +3,7 @@ import re
 import rstr # pyright: ignore[reportMissingImports]
 
 from sherlock_project.sherlock import sherlock
-from sherlock_project.notify import QueryNotify
+from sherlock_project.notify import NullQueryNotify
 from sherlock_project.result import QueryResult, QueryStatus
 
 
@@ -29,18 +29,17 @@ def set_pattern_upper_bound(pattern: str, upper_bound: int = FALSE_POSITIVE_QUAN
 def false_positive_check(sites_info: dict[str, dict[str, str]], site: str, pattern: str) -> QueryStatus:
     """Check if a site is likely to produce false positives."""
     for _ in range(FALSE_POSITIVE_ATTEMPTS):
-        query_notify: QueryNotify = QueryNotify()
         username: str = rstr.xeger(pattern)
 
         result: QueryResult | str = sherlock(
             username=username,
             site_data=sites_info,
-            query_notify=query_notify,
+            query_notify=NullQueryNotify(),
         )[site]['status']
 
         if not hasattr(result, 'status'):
             raise TypeError(f"Result for site {site} does not have 'status' attribute. Actual result: {result}")
-        if type(result.status) is not QueryStatus: # type: ignore
+        if not isinstance(result.status, QueryStatus): # type: ignore
             raise TypeError(f"Result status for site {site} is not of type QueryStatus. Actual type: {type(result.status)}") # type: ignore
 
         status: QueryStatus = result.status # type: ignore
@@ -52,19 +51,16 @@ def false_positive_check(sites_info: dict[str, dict[str, str]], site: str, patte
 
 def false_negative_check(sites_info: dict[str, dict[str, str]], site: str) -> QueryStatus:
     """Check if a site is likely to produce false negatives."""
-    query_notify: QueryNotify = QueryNotify()
-
     result: QueryResult | str = sherlock(
         username=sites_info[site]['username_claimed'],
         site_data=sites_info,
-        query_notify=query_notify,
+        query_notify=NullQueryNotify(),
     )[site]['status']
 
     if not hasattr(result, 'status'):
         raise TypeError(f"Result for site {site} does not have 'status' attribute. Actual result: {result}")
-    if type(result.status) is not QueryStatus: # type: ignore
+    if not isinstance(result.status, QueryStatus): # type: ignore
         raise TypeError(f"Result status for site {site} is not of type QueryStatus. Actual type: {type(result.status)}") # type: ignore
-
     return result.status # type: ignore
 
 @pytest.mark.validate_targets
@@ -74,7 +70,6 @@ class TestAllTargets:
     @pytest.mark.validate_targets_fp
     def test_false_pos(self, chunked_sites: dict[str, dict[str, str]]):
         """Iterate through all sites in the manifest to discover possible false-positive inducting targets."""
-        pattern: str
         for site in chunked_sites:
             try:
                 pattern = chunked_sites[site]['regexCheck']

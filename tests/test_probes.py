@@ -3,12 +3,12 @@ import random
 import string
 import re
 from sherlock_project.sherlock import sherlock
-from sherlock_project.notify import QueryNotify
+from sherlock_project.notify import NullQueryNotify
 from sherlock_project.result import QueryStatus
 
 
 def simple_query(sites_info: dict, site: str, username: str) -> QueryStatus:
-    query_notify = QueryNotify()
+    query_notify = NullQueryNotify()
     site_data: dict = {}
     site_data[site] = sites_info[site]
     return sherlock(

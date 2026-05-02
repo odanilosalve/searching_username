@@ -5,6 +5,16 @@ This module defines various objects for recording the results of queries.
 from enum import Enum
 
 
+class ErrorType(str, Enum):
+    """Error Type Enumeration.
+
+    Describes the method used to determine if a username exists on a site.
+    """
+    MESSAGE      = "message"
+    STATUS_CODE  = "status_code"
+    RESPONSE_URL = "response_url"
+
+
 class QueryStatus(Enum):
     """Query Status Enumeration.
 
@@ -68,8 +78,6 @@ class QueryResult():
         self.status        = status
         self.query_time    = query_time
         self.context       = context
-
-
 
     def __str__(self):
         """Convert Object To String.

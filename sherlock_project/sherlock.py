@@ -16,9 +16,7 @@ except ImportError:
     print("This is an outdated method. Please see https://sherlockproject.xyz/installation for up to date instructions.")
     sys.exit(1)
 
-import csv
 import signal
-import pandas as pd # pyright: ignore[reportMissingModuleSource]
 import os
 import re
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
@@ -33,13 +31,22 @@ from sherlock_project.__init__ import (
     __longname__,
     __shortname__,
     __version__,
-    forge_api_latest_release,
 )
 
-from sherlock_project.result import QueryStatus
-from sherlock_project.result import QueryResult
-from sherlock_project.notify import QueryNotify
-from sherlock_project.notify import QueryNotifyPrint
+forge_api_latest_release = "https://api.github.com/repos/sherlock-project/sherlock/releases/latest"
+
+USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:129.0) Gecko/20100101 Firefox/129.0"
+
+WAF_HIT_MSGS = [
+    r'.loading-spinner{visibility:hidden}body.no-js .challenge-running{display:none}body.dark{background-color:#222;color:#d9d9d9}body.dark a{color:#fff}body.dark a:hover{color:#ee730a;text-decoration:underline}body.dark .lds-ring div{border-color:#999 transparent transparent}body.dark .font-red{color:#b20f03}body.dark',
+    r'<span id="challenge-error-text">',
+    r'AwsWafIntegration.forceRefreshToken',
+    r'{return l.onPageView}}),Object.defineProperty(r,"perimeterxIdentifiers",{enumerable:',
+]
+
+from sherlock_project.result import QueryStatus, QueryResult, ErrorType
+from sherlock_project.notify import QueryNotify, QueryNotifyPrint
+from sherlock_project.output import write_txt_output, write_csv_output, write_xlsx_output
 from sherlock_project.sites import SitesInformation
 from colorama import init # pyright: ignore[reportMissingModuleSource]
 from argparse import ArgumentTypeError
@@ -92,14 +99,14 @@ def get_request_function(session, request, net_info) -> callable:
     """Determine the request function based on error type."""
     if request is not None:
         return request
-    if net_info["errorType"] == "status_code":
+    if net_info["errorType"] == ErrorType.STATUS_CODE:
         return session.head
     return session.get
 
 
 def get_allow_redirects(error_type: str) -> bool:
     """Determine if redirects should be allowed."""
-    return error_type != "response_url"
+    return error_type != ErrorType.RESPONSE_URL
 
 
 def make_request(request, url_probe, headers, proxy, allow_redirects, timeout, request_payload):
@@ -298,11 +305,11 @@ def determine_query_status(r, error_text, error_type, net_info, waf_hit_msgs) ->
         return QueryStatus.WAF, None
 
     # Unknown error type check
-    if any(errtype not in ["message", "status_code", "response_url"] for errtype in error_type):
+    if any(errtype not in list(ErrorType) for errtype in error_type):
         return QueryStatus.UNKNOWN, f"Unknown error type '{error_type}'"
 
     # Process by error type
-    if "message" in error_type:
+    if ErrorType.MESSAGE in error_type:
         query_status = process_message_error(r, net_info)
 
     query_status = process_status_code(r, net_info, query_status)
@@ -391,6 +398,7 @@ def sherlock(
     dump_response: bool = False,
     proxy: Optional[str] = None,
     timeout: int = 60,
+    session: Optional[requests.Session] = None,
 ) -> dict[str, dict[str, str | QueryResult]]:
     """Run Sherlock Analysis.
 
@@ -423,9 +431,7 @@ def sherlock(
     # Notify caller that we are starting the query.
     query_notify.start(username)
 
-    # Normal requests
-    underlying_session = requests.session()
-
+    underlying_session = session or requests.session()
     max_workers = min(len(site_data), 20)
 
     # Create multi-threaded session for all requests.
@@ -437,7 +443,7 @@ def sherlock(
     # First create futures for all requests.
     for social_network, net_info in site_data.items():
         results_site = {"url_main": net_info.get("urlMain")}
-        headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:129.0) Gecko/20100101 Firefox/129.0"}
+        headers = {"User-Agent": USER_AGENT}
         encoded_username = username.replace(' ', '%20')
         url = interpolate_string(net_info["url"], encoded_username)
 
@@ -603,74 +609,6 @@ def get_result_file(args, username: str) -> str:
         os.makedirs(args.folderoutput, exist_ok=True)
         return os.path.join(args.folderoutput, f"{username}.txt")
     return result_file
-
-
-def write_txt_output(results, result_file: str) -> None:
-    """Write results to a text file."""
-    with open(result_file, "w", encoding="utf-8") as file:
-        exists_counter = 0
-        for website_name in results:
-            dictionary = results[website_name]
-            if dictionary.get("status").status == QueryStatus.CLAIMED:
-                exists_counter += 1
-                file.write(dictionary["url_user"] + "\n")
-        file.write(f"Total Websites Username Detected On : {exists_counter}\n")
-
-
-def write_csv_output(results, args, username: str) -> None:
-    """Write results to a CSV file."""
-    result_file = f"{username}.csv"
-    if args.folderoutput:
-        os.makedirs(args.folderoutput, exist_ok=True)
-        result_file = os.path.join(args.folderoutput, result_file)
-
-    with open(result_file, "w", newline="", encoding="utf-8") as csv_report:
-        writer = csv.writer(csv_report)
-        writer.writerow(["username", "name", "url_main", "url_user", "exists", "http_status", "response_time_s"])
-        for site in results:
-            if args.print_found and not args.print_all and results[site]["status"].status != QueryStatus.CLAIMED:
-                continue
-            response_time_s = results[site]["status"].query_time
-            if response_time_s is None:
-                response_time_s = ""
-            writer.writerow([
-                username, site, results[site]["url_main"], results[site]["url_user"],
-                str(results[site]["status"].status), results[site]["http_status"], response_time_s
-            ])
-
-
-def write_xlsx_output(results, args, username: str) -> None:
-    """Write results to an XLSX file."""
-    usernames = []
-    names = []
-    url_main = []
-    url_user = []
-    exists = []
-    http_status = []
-    response_time_s = []
-
-    for site in results:
-        if args.print_found and not args.print_all and results[site]["status"].status != QueryStatus.CLAIMED:
-            continue
-        rt = results[site]["status"].query_time
-        if rt is None:
-            response_time_s.append("")
-        else:
-            response_time_s.append(rt)
-        usernames.append(username)
-        names.append(site)
-        url_main.append(results[site]["url_main"])
-        url_user.append(results[site]["url_user"])
-        exists.append(str(results[site]["status"].status))
-        http_status.append(results[site]["http_status"])
-
-    data_frame = pd.DataFrame({
-        "username": usernames, "name": names,
-        "url_main": [f'=HYPERLINK("{u}")' for u in url_main],
-        "url_user": [f'=HYPERLINK("{u}")' for u in url_user],
-        "exists": exists, "http_status": http_status, "response_time_s": response_time_s,
-    })
-    data_frame.to_excel(f"{username}.xlsx", sheet_name="sheet1", index=False)
 
 
 def process_usernames(args) -> list:
