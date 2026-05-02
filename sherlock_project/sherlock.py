@@ -91,9 +91,7 @@ def get_request_function(session, request, net_info) -> callable:
 
 def get_allow_redirects(error_type: str) -> bool:
     """Determine if redirects should be allowed."""
-    if error_type == "response_url":
-        return False
-    return True
+    return error_type != "response_url"
 
 
 def make_request(request, url_probe, headers, proxy, allow_redirects, timeout, request_payload):
@@ -229,13 +227,13 @@ def check_for_parameter(username):
     return "{?}" in username
 
 
-checksymbols = ["_", "-", "."]
+CHECK_SYMBOLS = ["_", "-", "."]
 
 
 def multiple_usernames(username):
     """replace the parameter with with symbols and return a list of usernames"""
     all_usernames = []
-    for i in checksymbols:
+    for i in CHECK_SYMBOLS:
         all_usernames.append(username.replace("{?}", i))
     return all_usernames
 
@@ -433,10 +431,7 @@ def sherlock(
     # Normal requests
     underlying_session = requests.session()
 
-    # Limit number of workers to 20.
-    max_workers = len(site_data)
-    if len(site_data) >= 20:
-        max_workers = 20
+    max_workers = min(len(site_data), 20)
 
     # Create multi-threaded session for all requests.
     session = SherlockFuturesSession(max_workers=max_workers, session=underlying_session)
@@ -541,7 +536,7 @@ def load_site_information(args):
                 os.path.join(os.path.dirname(__file__), "resources/data.json"),
                 honor_exclusions=False,
             )
-        if not args.local:
+        else:
             json_file_location = args.json_file
             if args.json_file and args.json_file.isnumeric():
                 pull_number = args.json_file
