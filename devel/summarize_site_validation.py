@@ -45,7 +45,9 @@ def summarize_junit_xml(xml_path: Path) -> str:
         raise ValueError("Invalid JUnit XML: No testsuite found")
 
     results: dict[str, dict[str, str]] = {}
-    error_flags = [_parse_testcase(tc, results) for tc in suite.findall('testcase')]
+    error_flags: list[bool] = []
+    for tc in suite.findall('testcase'):
+        error_flags.append(_parse_testcase(tc, results))
 
     summary_lines: list[str] = [
         "#### Automatic validation of changes\n",
