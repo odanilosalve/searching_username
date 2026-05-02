@@ -1,6 +1,6 @@
-import pytest
+import pytest # pyright: ignore[reportMissingImports]
 import re
-import rstr
+import rstr # pyright: ignore[reportMissingImports]
 
 from sherlock_project.sherlock import sherlock
 from sherlock_project.notify import QueryNotify
@@ -28,8 +28,6 @@ def set_pattern_upper_bound(pattern: str, upper_bound: int = FALSE_POSITIVE_QUAN
 
 def false_positive_check(sites_info: dict[str, dict[str, str]], site: str, pattern: str) -> QueryStatus:
     """Check if a site is likely to produce false positives."""
-    status: QueryStatus = QueryStatus.UNKNOWN
-
     for _ in range(FALSE_POSITIVE_ATTEMPTS):
         query_notify: QueryNotify = QueryNotify()
         username: str = rstr.xeger(pattern)
@@ -44,17 +42,16 @@ def false_positive_check(sites_info: dict[str, dict[str, str]], site: str, patte
             raise TypeError(f"Result for site {site} does not have 'status' attribute. Actual result: {result}")
         if type(result.status) is not QueryStatus: # type: ignore
             raise TypeError(f"Result status for site {site} is not of type QueryStatus. Actual type: {type(result.status)}") # type: ignore
-        status = result.status # type: ignore
 
+        status: QueryStatus = result.status # type: ignore
         if status in (QueryStatus.AVAILABLE, QueryStatus.WAF):
             return status
 
-    return status
+    return QueryStatus.UNKNOWN
 
 
 def false_negative_check(sites_info: dict[str, dict[str, str]], site: str) -> QueryStatus:
     """Check if a site is likely to produce false negatives."""
-    status: QueryStatus = QueryStatus.UNKNOWN
     query_notify: QueryNotify = QueryNotify()
 
     result: QueryResult | str = sherlock(
@@ -64,16 +61,15 @@ def false_negative_check(sites_info: dict[str, dict[str, str]], site: str) -> Qu
     )[site]['status']
 
     if not hasattr(result, 'status'):
-            raise TypeError(f"Result for site {site} does not have 'status' attribute. Actual result: {result}")
+        raise TypeError(f"Result for site {site} does not have 'status' attribute. Actual result: {result}")
     if type(result.status) is not QueryStatus: # type: ignore
         raise TypeError(f"Result status for site {site} is not of type QueryStatus. Actual type: {type(result.status)}") # type: ignore
-    status = result.status # type: ignore
 
-    return status
+    return result.status # type: ignore
 
 @pytest.mark.validate_targets
 @pytest.mark.online
-class Test_All_Targets:
+class TestAllTargets:
 
     @pytest.mark.validate_targets_fp
     def test_false_pos(self, chunked_sites: dict[str, dict[str, str]]):

@@ -45,6 +45,14 @@ from colorama import init # pyright: ignore[reportMissingModuleSource]
 from argparse import ArgumentTypeError
 
 
+WAF_HIT_MSGS = [
+    r'.loading-spinner{visibility:hidden}body.no-js .challenge-running{display:none}body.dark{background-color:#222;color:#d9d9d9}body.dark a{color:#fff}body.dark a:hover{color:#ee730a;text-decoration:underline}body.dark .lds-ring div{border-color:#999 transparent transparent}body.dark .font-red{color:#b20f03}body.dark',
+    r'<span id="challenge-error-text">',
+    r'AwsWafIntegration.forceRefreshToken',
+    r'{return l.onPageView}}),Object.defineProperty(r,"perimeterxIdentifiers",{enumerable:',
+]
+
+
 def get_hook_response(hooks, response_time) -> None:
     """Install response time hook into hooks dictionary."""
     if isinstance(hooks["response"], list):
@@ -186,29 +194,23 @@ def get_response(request_future):
     response = None
 
     error_context = "General Unknown Error"
-    exception_text = None
     try:
         response = request_future.result()
         if response.status_code:
             # Status code exists in response object
             error_context = None
-    except requests.exceptions.HTTPError as errh:
+    except requests.exceptions.HTTPError:
         error_context = "HTTP Error"
-        exception_text = str(errh)
-    except requests.exceptions.ProxyError as errp:
+    except requests.exceptions.ProxyError:
         error_context = "Proxy Error"
-        exception_text = str(errp)
-    except requests.exceptions.ConnectionError as errc:
+    except requests.exceptions.ConnectionError:
         error_context = "Error Connecting"
-        exception_text = str(errc)
-    except requests.exceptions.Timeout as errt:
+    except requests.exceptions.Timeout:
         error_context = "Timeout Error"
-        exception_text = str(errt)
-    except requests.exceptions.RequestException as err:
+    except requests.exceptions.RequestException:
         error_context = "Unknown Error"
-        exception_text = str(err)
 
-    return response, error_context, exception_text
+    return response, error_context
 
 
 def interpolate_string(input_object, username):
@@ -334,14 +336,7 @@ def process_response(results_site, social_network, net_info, r, error_text, erro
     query_status = QueryStatus.UNKNOWN
     error_context = None
 
-    waf_hit_msgs = [
-        r'.loading-spinner{visibility:hidden}body.no-js .challenge-running{display:none}body.dark{background-color:#222;color:#d9d9d9}body.dark a{color:#fff}body.dark a:hover{color:#ee730a;text-decoration:underline}body.dark .lds-ring div{border-color:#999 transparent transparent}body.dark .font-red{color:#b20f03}body.dark',
-        r'<span id="challenge-error-text">',
-        r'AwsWafIntegration.forceRefreshToken',
-        r'{return l.onPageView}}),Object.defineProperty(r,"perimeterxIdentifiers",{enumerable:',
-    ]
-
-    query_status, error_context = determine_query_status(r, error_text, error_type, net_info, waf_hit_msgs)
+    query_status, error_context = determine_query_status(r, error_text, error_type, net_info, WAF_HIT_MSGS)
 
     if dump_response:
         print("+++++++++++++++++++++")
@@ -443,8 +438,8 @@ def sherlock(
     for social_network, net_info in site_data.items():
         results_site = {"url_main": net_info.get("urlMain")}
         headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:129.0) Gecko/20100101 Firefox/129.0"}
-        processed_username_for_interpolation = str(username.replace(' ', '%20'))
-        url = interpolate_string(net_info["url"], processed_username_for_interpolation)
+        encoded_username = username.replace(' ', '%20')
+        url = interpolate_string(net_info["url"], encoded_username)
 
         process_site_result(results_site, social_network, net_info, url, username, session, headers, proxy, timeout, query_notify)
         results_total[social_network] = results_site
@@ -462,7 +457,7 @@ def sherlock(
             error_type = [error_type]
 
         future = net_info["request_future"]
-        r, error_text, _ = get_response(request_future=future)
+        r, error_text = get_response(request_future=future)
 
         results_total[social_network] = process_response(
             results_site, social_network, net_info, r, error_text, error_type, username, dump_response, query_notify
@@ -538,7 +533,7 @@ def load_site_information(args):
             )
         else:
             json_file_location = args.json_file
-            if args.json_file and args.json_file.isnumeric():
+            if args.json_file and args.json_file.isdigit():
                 pull_number = args.json_file
                 pull_url = f"https://api.github.com/repos/sherlock-project/sherlock/pulls/{pull_number}"
                 pull_request_raw = requests.get(pull_url, timeout=10).text
@@ -660,7 +655,7 @@ def write_xlsx_output(results, args, username: str) -> None:
         rt = results[site]["status"].query_time
         if rt is None:
             response_time_s.append("")
-        if rt is not None:
+        else:
             response_time_s.append(rt)
         usernames.append(username)
         names.append(site)

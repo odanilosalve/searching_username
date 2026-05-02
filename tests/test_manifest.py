@@ -1,6 +1,6 @@
 import os
 import json
-import pytest
+import pytest # pyright: ignore[reportMissingImports]
 from jsonschema import validate
 
 def test_validate_manifest_against_local_schema():

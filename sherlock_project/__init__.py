@@ -7,7 +7,7 @@ networks.
 
 from importlib.metadata import version as pkg_version, PackageNotFoundError
 import pathlib
-import tomli
+import tomli # pyright: ignore[reportMissingImports]
 
 
 def get_version() -> str:
