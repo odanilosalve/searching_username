@@ -3,13 +3,13 @@
 This module defines the objects for notifying the caller about the
 results of queries.
 """
+from abc import ABC, abstractmethod
 from sherlock_project.result import QueryStatus
 from colorama import Fore, Style # pyright: ignore[reportMissingModuleSource]
 import webbrowser
 
 
-
-class QueryNotify:
+class QueryNotify(ABC):
     """Query Notify Object.
 
     Base class that describes methods available to notify the results of
@@ -54,6 +54,7 @@ class QueryNotify:
         """
 
 
+    @abstractmethod
     def update(self, result):
         """Notify Update.
 
@@ -68,8 +69,6 @@ class QueryNotify:
         Return Value:
         Nothing.
         """
-
-        self.result = result
 
 
     def finish(self, message=None):
@@ -100,6 +99,13 @@ class QueryNotify:
         Nicely formatted string to get information about this object.
         """
         return str(self.result)
+
+
+class NullQueryNotify(QueryNotify):
+    """No-op query notifier for use in tests and programmatic callers."""
+
+    def update(self, result):
+        self.result = result
 
 
 class QueryNotifyPrint(QueryNotify):
