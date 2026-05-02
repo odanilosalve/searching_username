@@ -7,9 +7,6 @@ from sherlock_project.result import QueryStatus
 from colorama import Fore, Style # pyright: ignore[reportMissingModuleSource]
 import webbrowser
 
-# Global variable to count the number of results.
-globvar = 0
-
 
 class QueryNotify:
     """Query Notify Object.
@@ -132,6 +129,7 @@ class QueryNotifyPrint(QueryNotify):
         self.verbose = verbose
         self.print_all = print_all
         self.browse = browse
+        self._result_count = 0
 
 
     def start(self, message=None):
@@ -159,22 +157,11 @@ class QueryNotifyPrint(QueryNotify):
         print('\r')
 
 
-    def countResults(self):
-        """This function counts the number of results. Every time the function is called,
-        the number of results is increasing.
-
-        Keyword Arguments:
-        self                   -- This object.
-
-        Return Value:
-        The number of results by the time we call the function.
-        """
-        global globvar
-        globvar += 1
-        return globvar
+    def _count_result(self):
+        self._result_count += 1
 
     def _handle_claimed(self, response_time_text):
-        self.countResults()
+        self._count_result()
         print(Style.BRIGHT + Fore.WHITE + "[" +
               Fore.GREEN + "+" +
               Fore.WHITE + "]" +
@@ -195,7 +182,7 @@ class QueryNotifyPrint(QueryNotify):
                   Fore.GREEN + f" {self.result.site_name}:" +
                   Fore.YELLOW + " Not Found!")
 
-    def _handle_unknown(self, response_time_text):
+    def _handle_unknown(self, _response_time_text):
         if self.print_all:
             print(Style.BRIGHT + Fore.WHITE + "[" +
                   Fore.RED + "-" +
@@ -204,7 +191,7 @@ class QueryNotifyPrint(QueryNotify):
                   Fore.RED + f" {self.result.context}" +
                   Fore.YELLOW + " ")
 
-    def _handle_illegal(self, response_time_text):
+    def _handle_illegal(self, _response_time_text):
         if self.print_all:
             msg = "Illegal Username Format For This Site!"
             print(Style.BRIGHT + Fore.WHITE + "[" +
@@ -213,7 +200,7 @@ class QueryNotifyPrint(QueryNotify):
                   Fore.GREEN + f" {self.result.site_name}:" +
                   Fore.YELLOW + f" {msg}")
 
-    def _handle_waf(self, response_time_text):
+    def _handle_waf(self, _response_time_text):
         if self.print_all:
             print(Style.BRIGHT + Fore.WHITE + "[" +
                   Fore.RED + "-" +
@@ -267,7 +254,7 @@ class QueryNotifyPrint(QueryNotify):
         Return Value:
         Nothing.
         """
-        number_of_results = self.countResults() - 1
+        number_of_results = self._result_count
 
         print(Style.BRIGHT + Fore.GREEN + "[" +
               Fore.YELLOW + "*" +

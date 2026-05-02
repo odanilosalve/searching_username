@@ -13,7 +13,7 @@ EXCLUSIONS_URL = "https://raw.githubusercontent.com/sherlock-project/sherlock/re
 
 class SiteInformation:
     def __init__(self, name, url_home, url_username_format, username_claimed,
-                information, is_nsfw, username_unclaimed=secrets.token_urlsafe(10)):
+                information, is_nsfw):
         """Create Site Information Object.
 
         Contains information about a specific website.
@@ -34,8 +34,6 @@ class SiteInformation:
                                          the website.
         username_claimed       -- String containing username which is known
                                   to be claimed on website.
-        username_unclaimed     -- String containing username which is known
-                                  to be unclaimed on website.
         information            -- Dictionary containing all known information
                                   about website.
                                   NOTE:  Custom information about how to
@@ -58,9 +56,7 @@ class SiteInformation:
         self.username_claimed = username_claimed
         self.username_unclaimed = secrets.token_urlsafe(32)
         self.information = information
-        self.is_nsfw  = is_nsfw
-
-        return
+        self.is_nsfw = is_nsfw
 
     def __str__(self):
         """Convert Object To String.
@@ -80,7 +76,7 @@ class SitesInformation:
             self,
             data_file_path: str|None = None,
             honor_exclusions: bool = True,
-            do_not_exclude: list[str] = [],
+            do_not_exclude: list[str] | None = None,
         ):
         """Create Sites Information Object.
 
@@ -114,6 +110,9 @@ class SitesInformation:
         Return Value:
         Nothing.
         """
+
+        if do_not_exclude is None:
+            do_not_exclude = []
 
         if not data_file_path:
             # The default data file is the live data.json which is in the GitHub repo. The reason why we are using
@@ -203,9 +202,7 @@ class SitesInformation:
             except TypeError:
                 print(f"Encountered TypeError parsing json contents for target '{site_name}' at {data_file_path}\nSkipping target.\n")
 
-        return
-
-    def remove_nsfw_sites(self, do_not_remove: list = []):
+    def remove_nsfw_sites(self, do_not_remove: list | None = None):
         """
         Remove NSFW sites from the sites, if isNSFW flag is true for site
 
@@ -215,13 +212,15 @@ class SitesInformation:
         Return Value:
         None
         """
+        if do_not_remove is None:
+            do_not_remove = []
         sites = {}
         do_not_remove = [site.casefold() for site in do_not_remove]
         for site in self.sites:
             if self.sites[site].is_nsfw and site.casefold() not in do_not_remove:
                 continue
             sites[site] = self.sites[site]
-        self.sites =  sites
+        self.sites = sites
 
     def site_name_list(self):
         """Get Site Name List.
