@@ -1,11 +1,10 @@
-import pytest
+import pytest # pyright: ignore[reportMissingImports]
 import random
 import string
 import re
 from sherlock_project.sherlock import sherlock
 from sherlock_project.notify import QueryNotify
 from sherlock_project.result import QueryStatus
-#from sherlock_interactives import Interactives
 
 
 def simple_query(sites_info: dict, site: str, username: str) -> QueryStatus:

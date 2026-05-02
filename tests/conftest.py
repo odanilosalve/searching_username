@@ -1,7 +1,7 @@
 import os
 import json
 import urllib
-import pytest
+import pytest # pyright: ignore[reportMissingImports]
 from sherlock_project.sites import SitesInformation
 
 def fetch_local_manifest(honor_exclusions: bool = True) -> dict[str, dict[str, str]]:
